@@ -4,6 +4,8 @@ import traceback
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+# Allow fairseq checkpoints to load on PyTorch 2.6+ (trusted local model file).
+os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
 
 device = sys.argv[1]
 n_part = int(sys.argv[2])

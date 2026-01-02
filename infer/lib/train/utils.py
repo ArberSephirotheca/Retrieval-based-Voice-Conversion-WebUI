@@ -235,8 +235,14 @@ def plot_spectrogram_to_numpy(spectrogram):
     plt.tight_layout()
 
     fig.canvas.draw()
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep="")
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    # Matplotlib 3.8+ removed tostring_rgb; fall back to ARGB and drop alpha.
+    if hasattr(fig.canvas, "tostring_rgb"):
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    else:
+        data = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        data = data[:, :, [1, 2, 3]]
     plt.close()
     return data
 
@@ -266,8 +272,13 @@ def plot_alignment_to_numpy(alignment, info=None):
     plt.tight_layout()
 
     fig.canvas.draw()
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep="")
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    if hasattr(fig.canvas, "tostring_rgb"):
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    else:
+        data = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        data = data[:, :, [1, 2, 3]]
     plt.close()
     return data
 

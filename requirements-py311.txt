@@ -5,7 +5,6 @@ scipy
 librosa==0.10.2
 llvmlite
 fairseq @ git+https://github.com/One-sixth/fairseq.git
-faiss-cpu
 gradio==3.34.0
 Cython
 pydub>=0.25.1
@@ -38,8 +37,6 @@ uvicorn>=0.21.1
 colorama>=0.4.5
 pyworld==0.3.2
 httpx
-onnxruntime; sys_platform == 'darwin'
-onnxruntime-gpu; sys_platform != 'darwin'
 torchcrepe==0.0.23
 fastapi==0.88
 torchfcpe
