@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch separation + RVC conversion for all songs in a folder.
+"""Batch separation + RVC conversion for songs in a folder or a single file.
 
 Skips work if outputs already exist and records progress in a JSON state file.
 """
@@ -31,7 +31,18 @@ try:
 except Exception:
     ffmpeg = None
 
-AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".webm"}
+AUDIO_EXTS = {
+    ".mp3",
+    ".wav",
+    ".flac",
+    ".m4a",
+    ".mp4",
+    ".aac",
+    ".ogg",
+    ".opus",
+    ".weba",
+    ".webm",
+}
 
 
 def now_iso() -> str:
@@ -95,6 +106,33 @@ def ensure_wav_inputs(songs_dir: Path, output_dir: Path) -> list[Path]:
             continue
         if path.suffix.lower() not in AUDIO_EXTS:
             continue
+        if path.suffix.lower() == ".wav":
+            resolved = str(path.resolve())
+            if resolved not in seen:
+                songs.append(path)
+                seen.add(resolved)
+            continue
+        wav_path = path.with_suffix(".wav")
+        if not wav_path.exists():
+            print(f"Converting to wav: {path} -> {wav_path}")
+            convert_to_wav(path, wav_path)
+        resolved = str(wav_path.resolve())
+        if resolved not in seen:
+            songs.append(wav_path)
+            seen.add(resolved)
+    return songs
+
+
+def ensure_wav_inputs_from_list(files: list[Path], output_dir: Path) -> list[Path]:
+    songs: list[Path] = []
+    seen: set[str] = set()
+    for path in files:
+        if not path.is_file():
+            continue
+        if output_dir in path.parents:
+            continue
+        if path.suffix.lower() not in AUDIO_EXTS:
+            raise ValueError(f"Unsupported audio type: {path}")
         if path.suffix.lower() == ".wav":
             resolved = str(path.resolve())
             if resolved not in seen:
@@ -179,6 +217,7 @@ def run_msst_separation(
             "--extract_instrumental",
         ]
         cmd.extend(msst_device_args(device))
+        print("MSST command:", " ".join(str(item) for item in cmd))
         subprocess.run(cmd, cwd=msst_root, check=True)
 
 
@@ -357,6 +396,11 @@ def main() -> None:
         help="Folder containing full-mix songs",
     )
     parser.add_argument(
+        "--song-file",
+        default="",
+        help="Process a single song file instead of a folder",
+    )
+    parser.add_argument(
         "--output-dir",
         default="",
         help="Output base directory (defaults to <songs-dir>/uvr)",
@@ -370,7 +414,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--sep-backend",
-        default="uvr",
+        default="msst",
         choices=["uvr", "msst"],
         help="Source separation backend to use.",
     )
@@ -382,28 +426,28 @@ def main() -> None:
     parser.add_argument("--msst-model-type", default="mdx23c")
     parser.add_argument(
         "--msst-config",
-        default="",
-        help="Config file for MSST inference (defaults to vocals mdx23c config).",
+        default="/home/zheyuanchen/wolf-knight-bot/Music-Source-Separation-Training/configs/config_vocals_mdx23c.yaml",
+        help="Config file for MSST inference.",
     )
     parser.add_argument(
         "--msst-checkpoint",
-        default="",
-        help="Checkpoint file for MSST inference (auto-detected if omitted).",
+        default="/home/zheyuanchen/wolf-knight-bot/Music-Source-Separation-Training/model_vocals_mdx23c_sdr_10.17.ckpt",
+        help="Checkpoint file for MSST inference.",
     )
     parser.add_argument(
         "--msst-python",
-        default="",
-        help="Python executable for MSST (defaults to current interpreter).",
+        default="/home/zheyuanchen/wolf-knight-bot/Retrieval-based-Voice-Conversion-WebUI/.venv/bin/python",
+        help="Python executable for MSST.",
     )
-    parser.add_argument("--index-rate", type=float, default=0.66)
+    parser.add_argument("--index-rate", type=float, default=0.45)
     parser.add_argument("--f0method", default="rmvpe")
     parser.add_argument("--f0up-key", type=int, default=0)
     parser.add_argument("--filter-radius", type=int, default=3)
     parser.add_argument("--resample-sr", type=int, default=0)
-    parser.add_argument("--rms-mix-rate", type=float, default=1.0)
-    parser.add_argument("--protect", type=float, default=0.33)
-    parser.add_argument("--vocal-gain", type=float, default=1.3)
-    parser.add_argument("--inst-gain", type=float, default=1.0)
+    parser.add_argument("--rms-mix-rate", type=float, default=0.7)
+    parser.add_argument("--protect", type=float, default=0.5)
+    parser.add_argument("--vocal-gain", type=float, default=1.2)
+    parser.add_argument("--inst-gain", type=float, default=0.8)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--is-half", action="store_true")
     parser.add_argument("--fp32", action="store_true")
@@ -418,7 +462,13 @@ def main() -> None:
 
     load_dotenv(ROOT / ".env")
 
-    songs_dir = Path(args.songs_dir).expanduser().resolve()
+    song_file = Path(args.song_file).expanduser().resolve() if args.song_file else None
+    if song_file:
+        if not song_file.exists() or not song_file.is_file():
+            raise FileNotFoundError(f"Song file not found: {song_file}")
+        songs_dir = song_file.parent
+    else:
+        songs_dir = Path(args.songs_dir).expanduser().resolve()
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else songs_dir / "uvr"
     vocals_dir = output_dir / "vocals"
     inst_dir = output_dir / "instrumental"
@@ -426,9 +476,13 @@ def main() -> None:
     final_dir = output_dir / "final"
     state_path = Path(args.state).expanduser().resolve() if args.state else output_dir / "state.json"
 
-    songs = ensure_wav_inputs(songs_dir, output_dir)
+    if song_file:
+        songs = ensure_wav_inputs_from_list([song_file], output_dir)
+    else:
+        songs = ensure_wav_inputs(songs_dir, output_dir)
     if not songs:
-        print(f"No songs found in {songs_dir}")
+        target = song_file or songs_dir
+        print(f"No songs found in {target}")
         return
 
     state = load_state(state_path)
