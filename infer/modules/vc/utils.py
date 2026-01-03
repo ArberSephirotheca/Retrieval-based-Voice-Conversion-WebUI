@@ -1,5 +1,7 @@
+import inspect
 import os
 
+import torch
 from fairseq import checkpoint_utils
 
 
@@ -20,10 +22,23 @@ def get_index_path_from_model(sid):
 
 
 def load_hubert(config):
-    models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
-        ["assets/hubert/hubert_base.pt"],
-        suffix="",
-    )
+    orig_torch_load = torch.load
+    use_weights_only = "weights_only" in inspect.signature(torch.load).parameters
+    if use_weights_only:
+        # Trusted local model file; override torch.load default for fairseq.
+        def torch_load_no_weights_only(*args, **kwargs):
+            kwargs.setdefault("weights_only", False)
+            return orig_torch_load(*args, **kwargs)
+
+        torch.load = torch_load_no_weights_only
+    try:
+        models, _, _ = checkpoint_utils.load_model_ensemble_and_task(
+            ["assets/hubert/hubert_base.pt"],
+            suffix="",
+        )
+    finally:
+        if use_weights_only:
+            torch.load = orig_torch_load
     hubert_model = models[0]
     hubert_model = hubert_model.to(config.device)
     if config.is_half:
